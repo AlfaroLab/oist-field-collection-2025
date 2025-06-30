@@ -92,6 +92,8 @@ all_polygons = {}  # Dictionary to store all polygons and their data
 spectrum_figs = {}  # Dictionary to store spectrum plot windows
 vertex_history = []  # List to store history of vertex additions for undo functionality
 edit_mode = False  # Flag to track if we're in edit mode
+edit_made = False  # Flag to track if edits have been made but not saved
+original_polygon_points = None # Store original points when entering edit mode
 selected_polygon_num = None  # Track which polygon is being edited
 used_colors = []  # List to track used colors for polygons
 current_points = []  # List to store points for the current polygon being drawn
@@ -219,9 +221,11 @@ def on_click(event):
         all_polygons[selected_polygon_num]['points'] = polygon_points
         # Redraw all polygons
         redraw_all_polygons()
-        # Update the spectrum immediately after adding the vertex
-        update_polygon_data(selected_polygon_num, polygon_points, all_polygons[selected_polygon_num]['color'])
-        print(f"\nUpdated polygon {selected_polygon_num} and saved changes to CSV files.")
+        # Update the spectrum immediately after adding the vertex, but don't save
+        update_spectrum_plot(selected_polygon_num, polygon_points, all_polygons[selected_polygon_num]['color'])
+        global edit_made
+        edit_made = True
+        print(f"\nAdded vertex to polygon {selected_polygon_num}. Press Enter to save changes.")
         return
 
     # If not in edit mode and not dragging, add a new point for a new polygon
@@ -261,12 +265,13 @@ def on_motion(event):
         redraw_all_polygons()
 
 def on_release(event):
-    global dragging_vertex, current_polygon, current_polygon_num
+    global dragging_vertex, current_polygon, current_polygon_num, edit_made
     if dragging_vertex is not None:
         if current_polygon_num is not None:
-            # Update the processed polygon data and regenerate spectrum
-            update_polygon_data(current_polygon_num, current_polygon, all_polygons[current_polygon_num]['color'])
-            print(f"\nUpdated polygon {current_polygon_num} and saved changes to CSV files.")
+            # Update the processed polygon data and regenerate spectrum, but don't save
+            update_spectrum_plot(current_polygon_num, current_polygon, all_polygons[current_polygon_num]['color'])
+            edit_made = True
+            print(f"\nModified polygon {current_polygon_num}. Press Enter to save changes.")
     
     dragging_vertex = None
     current_polygon = None
@@ -589,8 +594,20 @@ def redraw_all_polygons(current_points=None, current_color=None):
     fig.canvas.draw_idle()
 
 def on_key(event):
-    global drawing_polygon, current_points, vertex_history, edit_mode, selected_polygon_num
+    global drawing_polygon, current_points, vertex_history, edit_mode, selected_polygon_num, edit_made, original_polygon_points
     global cid_click, cid_key, cid_motion, cid_release
+    
+    # Handle finalizing edits in edit mode
+    if edit_mode and selected_polygon_num is not None and (event.key == 'enter' or event.key == 'return'):
+        print(f"\nFinalizing and saving changes for polygon {selected_polygon_num}.")
+        points_to_save = all_polygons[selected_polygon_num]['points']
+        color_to_save = all_polygons[selected_polygon_num]['color']
+        update_polygon_data(selected_polygon_num, points_to_save, color_to_save)
+        
+        edit_made = False
+        original_polygon_points = points_to_save.copy() # The new baseline is the saved state
+        print("Changes saved to CSV.")
+        return # Prevent fall-through
     
     if (event.key == 'enter' or event.key == 'return') and current_points:
         # Get the next polygon number
@@ -660,8 +677,9 @@ def on_key(event):
                     all_polygons[polygon_num]['points'] = polygon_points
                     # Redraw all polygons
                     redraw_all_polygons()
-                    # Update the spectrum
-                    update_polygon_data(polygon_num, polygon_points, all_polygons[polygon_num]['color'])
+                    # Update the spectrum, but don't save
+                    update_spectrum_plot(polygon_num, polygon_points, all_polygons[polygon_num]['color'])
+                    edit_made = True
 
 def continue_to_polygon(event):
     global final_rgb, current_points, drawing_polygon, dragging_vertex, current_polygon, current_polygon_num, all_polygons, spectrum_figs
@@ -896,18 +914,20 @@ def load_polygons(event):
                 all_polygons[selected_polygon_num]['points'] = polygon_points
                 # Redraw all polygons
                 redraw_all_polygons()
-                # Update the spectrum immediately after adding the vertex
-                update_polygon_data(selected_polygon_num, polygon_points, all_polygons[selected_polygon_num]['color'])
-                print(f"\nUpdated polygon {selected_polygon_num} and saved changes to CSV files.")
+                # Update the spectrum immediately after adding the vertex, but don't save
+                update_spectrum_plot(selected_polygon_num, polygon_points, all_polygons[selected_polygon_num]['color'])
+                edit_made = True
+                print(f"\nAdded vertex to polygon {selected_polygon_num}. Press Enter to save changes.")
                 return
 
         def on_release(event):
             global dragging_vertex, current_polygon, current_polygon_num
             if dragging_vertex is not None:
                 if current_polygon_num is not None:
-                    # Update the processed polygon data and regenerate spectrum
-                    update_polygon_data(current_polygon_num, current_polygon, all_polygons[current_polygon_num]['color'])
-                    print(f"\nUpdated polygon {current_polygon_num} and saved changes to CSV files.")
+                    # Update the processed polygon data and regenerate spectrum, but don't save
+                    update_spectrum_plot(current_polygon_num, current_polygon, all_polygons[current_polygon_num]['color'])
+                    edit_made = True
+                    print(f"\nModified polygon {current_polygon_num}. Press Enter to save changes.")
             
             dragging_vertex = None
             current_polygon = None
@@ -952,8 +972,36 @@ def load_polygons(event):
     else:
         print("\nNo existing polygon files found.")
 
+def exit_edit_mode_cleanup():
+    """Reset state after exiting edit mode."""
+    global edit_mode, selected_polygon_num, drawing_polygon, edit_made, original_polygon_points
+    global cid_click, cid_motion, cid_release
+
+    edit_mode = False
+    selected_polygon_num = None
+    drawing_polygon = False
+    edit_made = False
+    original_polygon_points = None
+
+    # Disconnect drawing/editing handlers to prevent conflicts
+    if cid_click is not None:
+        fig.canvas.mpl_disconnect(cid_click)
+        cid_click = None
+    if cid_motion is not None:
+        fig.canvas.mpl_disconnect(cid_motion)
+        cid_motion = None
+    if cid_release is not None:
+        fig.canvas.mpl_disconnect(cid_release)
+        cid_release = None
+    
+    ax.set_title("Draw polygons (Click to add points, press Enter to finish polygon, 'q' to quit)")
+    edit_button.label.set_text('Edit Polygon')
+    fig.canvas.draw_idle()
+    
+    print("\nExited edit mode.")
+
 def toggle_edit_mode(event):
-    global edit_mode, selected_polygon_num, cid_click, cid_motion, cid_release, drawing_polygon
+    global edit_mode, selected_polygon_num, cid_click, cid_motion, cid_release, drawing_polygon, edit_made
     if not edit_mode:  # Only show dialog when entering edit mode
         if not all_polygons:
             # Create a new figure for the error message
@@ -993,10 +1041,13 @@ def toggle_edit_mode(event):
         
         def on_polygon_select(polygon_num):
             global edit_mode, selected_polygon_num, cid_click, cid_motion, cid_release, drawing_polygon
+            global original_polygon_points, edit_made
             plt.close(dialog_fig)
             edit_mode = True
             selected_polygon_num = polygon_num
             drawing_polygon = True  # Enable drawing mode for editing
+            original_polygon_points = all_polygons[polygon_num]['points'].copy()
+            edit_made = False
             
             # Disconnect existing event handlers
             if cid_click is not None:
@@ -1028,29 +1079,42 @@ def toggle_edit_mode(event):
         
         plt.show(block=True)
     else:  # Exiting edit mode
-        edit_mode = False
-        selected_polygon_num = None
-        drawing_polygon = False  # Disable drawing mode
-        
-        # Disconnect event handlers
-        if cid_click is not None:
-            plt.disconnect(cid_click)
-        if cid_motion is not None:
-            plt.disconnect(cid_motion)
-        if cid_release is not None:
-            plt.disconnect(cid_release)
-        
-        # Reconnect event handlers for normal mode
-        cid_click = fig.canvas.mpl_connect('button_press_event', on_click)
-        cid_motion = fig.canvas.mpl_connect('motion_notify_event', on_motion)
-        cid_release = fig.canvas.mpl_connect('button_release_event', on_release)
-        
-        ax.set_title("Draw polygons (Click to add points, press Enter to finish polygon, 'q' to quit)")
-        edit_button.label.set_text('Edit Polygon')
-        fig.canvas.draw_idle()
-        
-        print("\nExited edit mode")
-        print("Event handlers reconnected for normal mode")
+        if edit_made:
+            # Create a dialog to ask about saving changes
+            dialog_fig = plt.figure(figsize=(4, 2))
+            dialog_ax = dialog_fig.add_subplot(111)
+            dialog_ax.text(0.5, 0.6, "You have unsaved changes. Save them?",
+                          ha='center', va='center', transform=dialog_ax.transAxes)
+            dialog_ax.set_axis_off()
+            
+            ax_yes = plt.axes([0.2, 0.2, 0.25, 0.2])
+            ax_no = plt.axes([0.55, 0.2, 0.25, 0.2])
+            yes_button = Button(ax_yes, 'Yes')
+            no_button = Button(ax_no, 'No')
+
+            def on_yes_save(event):
+                plt.close(dialog_fig)
+                # Save the changes
+                points_to_save = all_polygons[selected_polygon_num]['points']
+                color_to_save = all_polygons[selected_polygon_num]['color']
+                update_polygon_data(selected_polygon_num, points_to_save, color_to_save)
+                print(f"\nChanges to polygon {selected_polygon_num} saved.")
+                exit_edit_mode_cleanup()
+
+            def on_no_save(event):
+                plt.close(dialog_fig)
+                # Revert the changes
+                all_polygons[selected_polygon_num]['points'] = original_polygon_points
+                redraw_all_polygons()
+                update_spectrum_plot(selected_polygon_num, original_polygon_points, all_polygons[selected_polygon_num]['color'])
+                print(f"\nChanges to polygon {selected_polygon_num} discarded.")
+                exit_edit_mode_cleanup()
+
+            yes_button.on_clicked(on_yes_save)
+            no_button.on_clicked(on_no_save)
+            plt.show(block=True)
+        else:
+            exit_edit_mode_cleanup()
 
 def auto_segment_specimen(event):
     # Automatically segment the specimen from the background using image processing
