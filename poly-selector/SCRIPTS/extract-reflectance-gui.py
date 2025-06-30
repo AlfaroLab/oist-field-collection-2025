@@ -1095,10 +1095,11 @@ def toggle_edit_mode(event):
             def on_yes_save(event):
                 plt.close(dialog_fig)
                 # Save the changes
+                print(f"\nFinalizing and saving changes for polygon {selected_polygon_num}.")
                 points_to_save = all_polygons[selected_polygon_num]['points']
                 color_to_save = all_polygons[selected_polygon_num]['color']
                 update_polygon_data(selected_polygon_num, points_to_save, color_to_save)
-                print(f"\nChanges to polygon {selected_polygon_num} saved.")
+                print(f"Changes saved to CSV.")
                 exit_edit_mode_cleanup()
 
             def on_no_save(event):
