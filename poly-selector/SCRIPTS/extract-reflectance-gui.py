@@ -1065,13 +1065,6 @@ def toggle_edit_mode(event):
             ax.set_title(f"Edit Mode: Editing Polygon {polygon_num}")
             edit_button.label.set_text('Exit Edit Mode')
             fig.canvas.draw_idle()
-            
-            # Print debug information
-            print(f"\nEntered edit mode for Polygon {polygon_num}")
-            print("Event handlers connected:")
-            print(f"Click handler: {cid_click}")
-            print(f"Motion handler: {cid_motion}")
-            print(f"Release handler: {cid_release}")
         
         # Connect each button to its handler
         for button, num in polygon_buttons:
